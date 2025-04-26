@@ -11,8 +11,7 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import random
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+from scrapingbee import ScrapingBeeClient
 import logging
 
 # Configurar logging
@@ -27,7 +26,7 @@ load_dotenv()
 
 # Configuração da API
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY")
+scrapingbee = ScrapingBeeClient(api_key=os.getenv("SCRAPINGBEE_API_KEY"))
 
 def create_session():
     session = requests.Session()
@@ -43,19 +42,16 @@ def create_session():
 
 async def extrair_texto(link):
     try:
-        # Primeira tentativa: usar ScraperAPI REST
+        # Primeira tentativa: usar ScrapingBee
         try:
-            session = create_session()
-            response = session.get(
-                'https://api.scraperapi.com',
+            response = scrapingbee.get(
+                link,
                 params={
-                    'api_key': SCRAPER_API_KEY,
-                    'url': link,
-                    'render': 'true',
+                    'render_js': 'true',
+                    'wait': 3000,
                     'country_code': 'br',
-                    'autoparse': 'true'
-                },
-                timeout=30
+                    'premium_proxy': 'true'
+                }
             )
             response.raise_for_status()
             
@@ -78,21 +74,18 @@ async def extrair_texto(link):
             if texto and len(texto) > 100:
                 return texto
         except Exception as e:
-            logger.warning(f"Primeira tentativa (ScraperAPI) falhou: {str(e)}")
+            logger.warning(f"Primeira tentativa (ScrapingBee) falhou: {str(e)}")
             
-        # Segunda tentativa: usar newspaper3k com ScraperAPI
+        # Segunda tentativa: usar newspaper3k com ScrapingBee
         try:
-            session = create_session()
-            response = session.get(
-                'https://api.scraperapi.com',
+            response = scrapingbee.get(
+                link,
                 params={
-                    'api_key': SCRAPER_API_KEY,
-                    'url': link,
-                    'render': 'true',
+                    'render_js': 'true',
+                    'wait': 3000,
                     'country_code': 'br',
-                    'autoparse': 'true'
-                },
-                timeout=30
+                    'premium_proxy': 'true'
+                }
             )
             response.raise_for_status()
             
