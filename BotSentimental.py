@@ -13,6 +13,7 @@ import time
 import random
 from playwright.sync_api import sync_playwright
 import logging
+import subprocess
 
 # Configurar logging
 logging.basicConfig(
@@ -26,6 +27,13 @@ load_dotenv()
 
 # Configuração da API
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# Install Playwright browser if not already installed
+try:
+    subprocess.run([sys.executable, '-m', 'playwright', 'install', 'chromium'], check=True)
+except subprocess.CalledProcessError as e:
+    print(f"Failed to install browser: {e}")
+    sys.exit(1)
 
 async def extrair_texto(link):
     try:
