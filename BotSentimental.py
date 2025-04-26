@@ -11,6 +11,13 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import random
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
 
 # Load environment variables
 load_dotenv()
@@ -18,21 +25,70 @@ load_dotenv()
 # Configuração da API
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+def setup_selenium():
+    chrome_options = Options()
+    chrome_options.add_argument('--headless')
+    chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--disable-dev-shm-usage')
+    chrome_options.add_argument('--disable-gpu')
+    chrome_options.add_argument('--window-size=1920,1080')
+    chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
+    
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+    return driver
+
 def extrair_texto(link):
     try:
-        # Headers mais completos para simular um navegador real
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Cache-Control': 'max-age=0'
-        }
-        
-        # Primeira tentativa: usar requests e BeautifulSoup
+        # Primeira tentativa: usar Selenium
         try:
+            driver = setup_selenium()
+            driver.get(link)
+            
+            # Esperar o conteúdo carregar
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.TAG_NAME, "body"))
+            )
+            
+            # Dar um tempo extra para o conteúdo dinâmico carregar
+            time.sleep(3)
+            
+            # Encontrar o conteúdo principal
+            article = driver.find_elements(By.TAG_NAME, "article")
+            if article:
+                texto = article[0].text
+            else:
+                # Tentar encontrar divs com classes comuns de conteúdo
+                content_divs = driver.find_elements(By.CSS_SELECTOR, "div.article, div.post, div.content, div.main-content")
+                if content_divs:
+                    texto = content_divs[0].text
+                else:
+                    # Se não encontrar, pegar todo o texto do body
+                    texto = driver.find_element(By.TAG_NAME, "body").text
+            
+            driver.quit()
+            
+            if texto and len(texto) > 100:
+                return texto
+        except Exception as e:
+            print(f"[AVISO] Primeira tentativa (Selenium) falhou: {str(e)}")
+            try:
+                driver.quit()
+            except:
+                pass
+            
+        # Segunda tentativa: usar requests e BeautifulSoup
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Cache-Control': 'max-age=0'
+            }
+            
             response = requests.get(link, headers=headers, timeout=10)
             response.raise_for_status()
             
@@ -46,25 +102,10 @@ def extrair_texto(link):
             article = soup.find('article') or soup.find('div', class_=['article', 'post', 'content', 'main-content'])
             
             if article:
-                # Extrair texto do artigo
                 texto = article.get_text(separator=' ', strip=True)
             else:
-                # Se não encontrar o artigo, extrair de todos os parágrafos
                 paragraphs = soup.find_all('p')
                 texto = ' '.join([p.get_text().strip() for p in paragraphs if p.get_text().strip()])
-            
-            if texto and len(texto) > 100:  # Verifica se o texto tem um tamanho mínimo
-                return texto
-        except Exception as e:
-            print(f"[AVISO] Primeira tentativa falhou: {str(e)}")
-            time.sleep(random.uniform(1, 3))  # Espera um tempo aleatório antes da próxima tentativa
-            
-        # Segunda tentativa: usar newspaper3k
-        try:
-            article = Article(link)
-            article.download()
-            article.parse()
-            texto = article.text.strip()
             
             if texto and len(texto) > 100:
                 return texto
