@@ -1,1 +1,1 @@
-web: python BotSentimental.py 
+web: playwright install chromium && python BotSentimental.py 
