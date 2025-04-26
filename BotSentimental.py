@@ -7,6 +7,9 @@ import sys
 import os
 from urllib.parse import urlparse
 from dotenv import load_dotenv
+import requests
+from bs4 import BeautifulSoup
+import time
 
 # Load environment variables
 load_dotenv()
@@ -16,15 +19,40 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 def extrair_texto(link):
     try:
+        # Primeira tentativa: usar newspaper3k
         article = Article(link)
         article.download()
         article.parse()
         texto = article.text.strip()
+        
+        if texto:
+            return texto
+            
+        # Segunda tentativa: usar requests e BeautifulSoup
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        response = requests.get(link, headers=headers, timeout=10)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Remover elementos indesejados
+        for element in soup(['script', 'style', 'nav', 'footer', 'header']):
+            element.decompose()
+            
+        # Extrair texto dos parágrafos
+        paragraphs = soup.find_all('p')
+        texto = ' '.join([p.get_text().strip() for p in paragraphs if p.get_text().strip()])
+        
         if not texto:
-            print("[AVISO] Texto vazio extraído.")
+            print(f"[AVISO] Texto vazio extraído do link: {link}")
+            return None
+            
         return texto
+        
     except Exception as e:
-        print(f"[ERRO] Falha ao extrair texto: {e}")
+        print(f"[ERRO] Falha ao extrair texto: {str(e)}")
         return None
 
 def classificar_conteudo_via_gpt(texto):
