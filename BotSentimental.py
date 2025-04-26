@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 import requests
 from bs4 import BeautifulSoup
 import time
+import random
 
 # Load environment variables
 load_dotenv()
@@ -19,37 +20,59 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 def extrair_texto(link):
     try:
-        # Primeira tentativa: usar newspaper3k
-        article = Article(link)
-        article.download()
-        article.parse()
-        texto = article.text.strip()
-        
-        if texto:
-            return texto
-            
-        # Segunda tentativa: usar requests e BeautifulSoup
+        # Headers mais completos para simular um navegador real
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Cache-Control': 'max-age=0'
         }
-        response = requests.get(link, headers=headers, timeout=10)
-        response.raise_for_status()
         
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Remover elementos indesejados
-        for element in soup(['script', 'style', 'nav', 'footer', 'header']):
-            element.decompose()
+        # Primeira tentativa: usar requests e BeautifulSoup
+        try:
+            response = requests.get(link, headers=headers, timeout=10)
+            response.raise_for_status()
             
-        # Extrair texto dos parágrafos
-        paragraphs = soup.find_all('p')
-        texto = ' '.join([p.get_text().strip() for p in paragraphs if p.get_text().strip()])
-        
-        if not texto:
-            print(f"[AVISO] Texto vazio extraído do link: {link}")
-            return None
+            soup = BeautifulSoup(response.text, 'html.parser')
             
-        return texto
+            # Remover elementos indesejados
+            for element in soup(['script', 'style', 'nav', 'footer', 'header', 'iframe', 'noscript']):
+                element.decompose()
+                
+            # Tentar encontrar o conteúdo principal
+            article = soup.find('article') or soup.find('div', class_=['article', 'post', 'content', 'main-content'])
+            
+            if article:
+                # Extrair texto do artigo
+                texto = article.get_text(separator=' ', strip=True)
+            else:
+                # Se não encontrar o artigo, extrair de todos os parágrafos
+                paragraphs = soup.find_all('p')
+                texto = ' '.join([p.get_text().strip() for p in paragraphs if p.get_text().strip()])
+            
+            if texto and len(texto) > 100:  # Verifica se o texto tem um tamanho mínimo
+                return texto
+        except Exception as e:
+            print(f"[AVISO] Primeira tentativa falhou: {str(e)}")
+            time.sleep(random.uniform(1, 3))  # Espera um tempo aleatório antes da próxima tentativa
+            
+        # Segunda tentativa: usar newspaper3k
+        try:
+            article = Article(link)
+            article.download()
+            article.parse()
+            texto = article.text.strip()
+            
+            if texto and len(texto) > 100:
+                return texto
+        except Exception as e:
+            print(f"[AVISO] Segunda tentativa falhou: {str(e)}")
+            
+        print(f"[AVISO] Não foi possível extrair texto significativo do link: {link}")
+        return None
         
     except Exception as e:
         print(f"[ERRO] Falha ao extrair texto: {str(e)}")
