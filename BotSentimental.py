@@ -11,13 +11,7 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import random
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
+from playwright.sync_api import sync_playwright
 
 # Load environment variables
 load_dotenv()
@@ -25,57 +19,49 @@ load_dotenv()
 # Configuração da API
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-def setup_selenium():
-    chrome_options = Options()
-    chrome_options.add_argument('--headless')
-    chrome_options.add_argument('--no-sandbox')
-    chrome_options.add_argument('--disable-dev-shm-usage')
-    chrome_options.add_argument('--disable-gpu')
-    chrome_options.add_argument('--window-size=1920,1080')
-    chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
-    
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=chrome_options)
-    return driver
-
 def extrair_texto(link):
     try:
-        # Primeira tentativa: usar Selenium
+        # Primeira tentativa: usar Playwright
         try:
-            driver = setup_selenium()
-            driver.get(link)
-            
-            # Esperar o conteúdo carregar
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.TAG_NAME, "body"))
-            )
-            
-            # Dar um tempo extra para o conteúdo dinâmico carregar
-            time.sleep(3)
-            
-            # Encontrar o conteúdo principal
-            article = driver.find_elements(By.TAG_NAME, "article")
-            if article:
-                texto = article[0].text
-            else:
-                # Tentar encontrar divs com classes comuns de conteúdo
-                content_divs = driver.find_elements(By.CSS_SELECTOR, "div.article, div.post, div.content, div.main-content")
-                if content_divs:
-                    texto = content_divs[0].text
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page()
+                
+                # Configurar headers
+                page.set_extra_http_headers({
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                    'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+                })
+                
+                # Navegar para a página
+                page.goto(link, wait_until='networkidle', timeout=30000)
+                
+                # Esperar o conteúdo carregar
+                page.wait_for_load_state('domcontentloaded')
+                
+                # Dar um tempo extra para o conteúdo dinâmico carregar
+                time.sleep(3)
+                
+                # Tentar encontrar o conteúdo principal
+                article = page.query_selector('article')
+                if article:
+                    texto = article.inner_text()
                 else:
-                    # Se não encontrar, pegar todo o texto do body
-                    texto = driver.find_element(By.TAG_NAME, "body").text
-            
-            driver.quit()
-            
-            if texto and len(texto) > 100:
-                return texto
+                    # Tentar encontrar divs com classes comuns de conteúdo
+                    content_div = page.query_selector('div.article, div.post, div.content, div.main-content')
+                    if content_div:
+                        texto = content_div.inner_text()
+                    else:
+                        # Se não encontrar, pegar todo o texto do body
+                        texto = page.query_selector('body').inner_text()
+                
+                browser.close()
+                
+                if texto and len(texto) > 100:
+                    return texto
         except Exception as e:
-            print(f"[AVISO] Primeira tentativa (Selenium) falhou: {str(e)}")
-            try:
-                driver.quit()
-            except:
-                pass
+            print(f"[AVISO] Primeira tentativa (Playwright) falhou: {str(e)}")
             
         # Segunda tentativa: usar requests e BeautifulSoup
         try:
