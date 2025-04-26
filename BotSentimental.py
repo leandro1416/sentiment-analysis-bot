@@ -11,8 +11,7 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import random
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+from scrapingdog import ScrapingDog
 import logging
 
 # Configurar logging
@@ -27,36 +26,20 @@ load_dotenv()
 
 # Configuração da API
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-SCRAPINGBEE_API_KEY = os.getenv("SCRAPINGBEE_API_KEY")
-
-def create_session():
-    session = requests.Session()
-    retry_strategy = Retry(
-        total=3,
-        backoff_factor=1,
-        status_forcelist=[403, 429, 500, 502, 503, 504],
-    )
-    adapter = HTTPAdapter(max_retries=retry_strategy)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
-    return session
+scrapingdog = ScrapingDog(api_key=os.getenv("SCRAPINGDOG_API_KEY"))
 
 async def extrair_texto(link):
     try:
-        # Primeira tentativa: usar ScrapingBee REST
+        # Primeira tentativa: usar ScrapingDog
         try:
-            session = create_session()
-            response = session.get(
-                'https://app.scrapingbee.com/api/v1/',
+            response = scrapingdog.get(
+                link,
                 params={
-                    'api_key': SCRAPINGBEE_API_KEY,
-                    'url': link,
                     'render_js': 'true',
                     'wait': 3000,
-                    'country_code': 'br',
-                    'premium_proxy': 'true'
-                },
-                timeout=30
+                    'country': 'br',
+                    'premium': 'true'
+                }
             )
             response.raise_for_status()
             
@@ -79,22 +62,18 @@ async def extrair_texto(link):
             if texto and len(texto) > 100:
                 return texto
         except Exception as e:
-            logger.warning(f"Primeira tentativa (ScrapingBee) falhou: {str(e)}")
+            logger.warning(f"Primeira tentativa (ScrapingDog) falhou: {str(e)}")
             
-        # Segunda tentativa: usar newspaper3k com ScrapingBee
+        # Segunda tentativa: usar newspaper3k com ScrapingDog
         try:
-            session = create_session()
-            response = session.get(
-                'https://app.scrapingbee.com/api/v1/',
+            response = scrapingdog.get(
+                link,
                 params={
-                    'api_key': SCRAPINGBEE_API_KEY,
-                    'url': link,
                     'render_js': 'true',
                     'wait': 3000,
-                    'country_code': 'br',
-                    'premium_proxy': 'true'
-                },
-                timeout=30
+                    'country': 'br',
+                    'premium': 'true'
+                }
             )
             response.raise_for_status()
             
