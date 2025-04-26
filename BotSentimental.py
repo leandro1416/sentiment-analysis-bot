@@ -13,6 +13,14 @@ import time
 import random
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+import logging
+
+# Configurar logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -70,7 +78,7 @@ async def extrair_texto(link):
             if texto and len(texto) > 100:
                 return texto
         except Exception as e:
-            print(f"[AVISO] Primeira tentativa (ScraperAPI) falhou: {str(e)}")
+            logger.warning(f"Primeira tentativa (ScraperAPI) falhou: {str(e)}")
             
         # Segunda tentativa: usar newspaper3k com ScraperAPI
         try:
@@ -96,13 +104,13 @@ async def extrair_texto(link):
             if texto and len(texto) > 100:
                 return texto
         except Exception as e:
-            print(f"[AVISO] Segunda tentativa falhou: {str(e)}")
+            logger.warning(f"Segunda tentativa falhou: {str(e)}")
             
-        print(f"[AVISO] Não foi possível extrair texto significativo do link: {link}")
+        logger.warning(f"Não foi possível extrair texto significativo do link: {link}")
         return None
         
     except Exception as e:
-        print(f"[ERRO] Falha ao extrair texto: {str(e)}")
+        logger.error(f"Falha ao extrair texto: {str(e)}")
         return None
 
 def classificar_conteudo_via_gpt(texto):
@@ -185,17 +193,34 @@ async def analisar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Não consegui acessar ou extrair conteúdo do link fornecido. Verifique se ele está correto e acessível.")
 
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log the error and send a message to the user."""
+    logger.error(f"Update {update} caused error {context.error}")
+    if update and update.effective_message:
+        await update.effective_message.reply_text(
+            "Desculpe, ocorreu um erro ao processar sua solicitação. Por favor, tente novamente mais tarde."
+        )
+
 if __name__ == "__main__":
-    import asyncio
-    import logging
-    logging.basicConfig(level=logging.INFO)
-
     TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-
-    app = ApplicationBuilder().token(TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, analisar))
-
-    print("Bot está rodando...")
-    app.run_polling()
+    
+    # Criar a aplicação
+    application = ApplicationBuilder().token(TOKEN).build()
+    
+    # Adicionar handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, analisar))
+    
+    # Adicionar handler de erro
+    application.add_error_handler(error_handler)
+    
+    # Configurar polling com timeout e clean=True
+    application.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True,
+        timeout=30,
+        read_timeout=30,
+        write_timeout=30,
+        connect_timeout=30,
+        pool_timeout=30
+    )
