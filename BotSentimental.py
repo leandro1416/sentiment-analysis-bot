@@ -11,7 +11,7 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import random
-from playwright.sync_api import sync_playwright
+from playwright.async_api import async_playwright
 
 # Load environment variables
 load_dotenv()
@@ -19,44 +19,45 @@ load_dotenv()
 # Configuração da API
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-def extrair_texto(link):
+async def extrair_texto(link):
     try:
         # Primeira tentativa: usar Playwright
         try:
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
-                page = browser.new_page()
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                page = await browser.new_page()
                 
                 # Configurar headers
-                page.set_extra_http_headers({
+                await page.set_extra_http_headers({
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
                     'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
                 })
                 
                 # Navegar para a página
-                page.goto(link, wait_until='networkidle', timeout=30000)
+                await page.goto(link, wait_until='networkidle', timeout=30000)
                 
                 # Esperar o conteúdo carregar
-                page.wait_for_load_state('domcontentloaded')
+                await page.wait_for_load_state('domcontentloaded')
                 
                 # Dar um tempo extra para o conteúdo dinâmico carregar
-                time.sleep(3)
+                await asyncio.sleep(3)
                 
                 # Tentar encontrar o conteúdo principal
-                article = page.query_selector('article')
+                article = await page.query_selector('article')
                 if article:
-                    texto = article.inner_text()
+                    texto = await article.inner_text()
                 else:
                     # Tentar encontrar divs com classes comuns de conteúdo
-                    content_div = page.query_selector('div.article, div.post, div.content, div.main-content')
+                    content_div = await page.query_selector('div.article, div.post, div.content, div.main-content')
                     if content_div:
-                        texto = content_div.inner_text()
+                        texto = await content_div.inner_text()
                     else:
                         # Se não encontrar, pegar todo o texto do body
-                        texto = page.query_selector('body').inner_text()
+                        body = await page.query_selector('body')
+                        texto = await body.inner_text()
                 
-                browser.close()
+                await browser.close()
                 
                 if texto and len(texto) > 100:
                     return texto
@@ -177,7 +178,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def analisar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     link = update.message.text.strip()
-    texto = extrair_texto(link)
+    texto = await extrair_texto(link)
     if texto:
         analise = classificar_conteudo_via_gpt(texto)
         await update.message.reply_text(f"[ANÁLISE GPT]\n{analise}")
@@ -190,7 +191,7 @@ if __name__ == "__main__":
     import logging
     logging.basicConfig(level=logging.INFO)
 
-    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")  # Get token from environment variable
+    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
     app = ApplicationBuilder().token(TOKEN).build()
 
