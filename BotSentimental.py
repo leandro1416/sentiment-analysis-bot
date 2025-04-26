@@ -11,6 +11,8 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import random
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # Load environment variables
 load_dotenv()
@@ -18,27 +20,48 @@ load_dotenv()
 # Configuração da API
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+def create_session():
+    session = requests.Session()
+    retry_strategy = Retry(
+        total=3,
+        backoff_factor=1,
+        status_forcelist=[403, 429, 500, 502, 503, 504],
+    )
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
 async def extrair_texto(link):
     try:
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
             'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
             'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
             'Upgrade-Insecure-Requests': '1',
-            'Cache-Control': 'max-age=0'
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Cache-Control': 'max-age=0',
+            'DNT': '1',
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"'
         }
         
         # Primeira tentativa: usar requests e BeautifulSoup
         try:
-            response = requests.get(link, headers=headers, timeout=10)
+            session = create_session()
+            response = session.get(link, headers=headers, timeout=10)
             response.raise_for_status()
             
             soup = BeautifulSoup(response.text, 'html.parser')
             
             # Remover elementos indesejados
-            for element in soup(['script', 'style', 'nav', 'footer', 'header', 'iframe', 'noscript']):
+            for element in soup(['script', 'style', 'nav', 'footer', 'header', 'iframe', 'noscript', 'aside']):
                 element.decompose()
                 
             # Tentar encontrar o conteúdo principal
@@ -56,9 +79,10 @@ async def extrair_texto(link):
         except Exception as e:
             print(f"[AVISO] Primeira tentativa falhou: {str(e)}")
             
-        # Segunda tentativa: usar newspaper3k
+        # Segunda tentativa: usar newspaper3k com headers personalizados
         try:
             article = Article(link)
+            article.headers = headers
             article.download()
             article.parse()
             texto = article.text
