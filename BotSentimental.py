@@ -39,12 +39,13 @@ async def extrair_texto(link):
         try:
             session = create_session()
             response = session.get(
-                'http://api.scraperapi.com',
+                'https://api.scraperapi.com',
                 params={
                     'api_key': SCRAPER_API_KEY,
                     'url': link,
                     'render': 'true',
-                    'country_code': 'br'
+                    'country_code': 'br',
+                    'autoparse': 'true'
                 },
                 timeout=30
             )
@@ -75,12 +76,13 @@ async def extrair_texto(link):
         try:
             session = create_session()
             response = session.get(
-                'http://api.scraperapi.com',
+                'https://api.scraperapi.com',
                 params={
                     'api_key': SCRAPER_API_KEY,
                     'url': link,
                     'render': 'true',
-                    'country_code': 'br'
+                    'country_code': 'br',
+                    'autoparse': 'true'
                 },
                 timeout=30
             )
