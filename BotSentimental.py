@@ -11,7 +11,7 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import random
-from scrapingdog import ScrapingDog
+from playwright.sync_api import sync_playwright
 import logging
 
 # Configurar logging
@@ -26,21 +26,49 @@ load_dotenv()
 
 # Configuração da API
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-scrapingdog = ScrapingDog(api_key=os.getenv("SCRAPINGDOG_API_KEY"))
 
 async def extrair_texto(link):
     try:
-        # Primeira tentativa: usar ScrapingDog
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            
+            # Configurar headers para simular um navegador real
+            page.set_extra_http_headers({
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Connection': 'keep-alive',
+            })
+            
+            try:
+                # Navegar para a página e esperar o conteúdo carregar
+                page.goto(link, wait_until='networkidle', timeout=30000)
+                
+                # Tentar extrair o conteúdo principal
+                content = page.query_selector('article') or page.query_selector('div.article, div.post, div.content, div.main-content')
+                
+                if content:
+                    texto = content.inner_text()
+                else:
+                    # Se não encontrar o conteúdo principal, tentar extrair todos os parágrafos
+                    paragraphs = page.query_selector_all('p')
+                    texto = ' '.join([p.inner_text() for p in paragraphs])
+                
+                if texto and len(texto) > 100:
+                    return texto
+                    
+            except Exception as e:
+                logger.warning(f"Falha ao extrair texto com Playwright: {str(e)}")
+                
+            finally:
+                browser.close()
+                
+        # Se Playwright falhar, tentar com requests + BeautifulSoup como fallback
         try:
-            response = scrapingdog.get(
-                link,
-                params={
-                    'render_js': 'true',
-                    'wait': 3000,
-                    'country': 'br',
-                    'premium': 'true'
-                }
-            )
+            response = requests.get(link, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            })
             response.raise_for_status()
             
             soup = BeautifulSoup(response.text, 'html.parser')
@@ -61,31 +89,9 @@ async def extrair_texto(link):
             
             if texto and len(texto) > 100:
                 return texto
+                
         except Exception as e:
-            logger.warning(f"Primeira tentativa (ScrapingDog) falhou: {str(e)}")
-            
-        # Segunda tentativa: usar newspaper3k com ScrapingDog
-        try:
-            response = scrapingdog.get(
-                link,
-                params={
-                    'render_js': 'true',
-                    'wait': 3000,
-                    'country': 'br',
-                    'premium': 'true'
-                }
-            )
-            response.raise_for_status()
-            
-            article = Article(link)
-            article.html = response.text
-            article.parse()
-            texto = article.text
-            
-            if texto and len(texto) > 100:
-                return texto
-        except Exception as e:
-            logger.warning(f"Segunda tentativa falhou: {str(e)}")
+            logger.warning(f"Falha ao extrair texto com requests: {str(e)}")
             
         logger.warning(f"Não foi possível extrair texto significativo do link: {link}")
         return None
