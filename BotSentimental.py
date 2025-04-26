@@ -14,6 +14,7 @@ import random
 from playwright.sync_api import sync_playwright
 import logging
 import subprocess
+from playwright.async_api import async_playwright
 
 # Configurar logging
 logging.basicConfig(
@@ -30,76 +31,55 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 async def extrair_texto(link):
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page()
-            
-            # Configurar headers para simular um navegador real
-            page.set_extra_http_headers({
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.5',
-                'Connection': 'keep-alive',
-            })
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=['--no-sandbox', '--disable-setuid-sandbox']
+            )
+            page = await browser.new_page(
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            )
             
             try:
-                # Navegar para a página e esperar o conteúdo carregar
-                page.goto(link, wait_until='networkidle', timeout=30000)
-                
-                # Tentar extrair o conteúdo principal
-                content = page.query_selector('article') or page.query_selector('div.article, div.post, div.content, div.main-content')
-                
-                if content:
-                    texto = content.inner_text()
-                else:
-                    # Se não encontrar o conteúdo principal, tentar extrair todos os parágrafos
-                    paragraphs = page.query_selector_all('p')
-                    texto = ' '.join([p.inner_text() for p in paragraphs])
-                
-                if texto and len(texto) > 100:
-                    return texto
+                await page.goto(link, wait_until='networkidle')
+                # Try to find the main article content
+                content = await page.evaluate("""() => {
+                    // Try different selectors for article content
+                    const selectors = [
+                        'article',
+                        'main',
+                        '.article-content',
+                        '.post-content',
+                        '.entry-content',
+                        '#content'
+                    ];
                     
+                    for (const selector of selectors) {
+                        const element = document.querySelector(selector);
+                        if (element) {
+                            return element.innerText;
+                        }
+                    }
+                    
+                    // If no specific content area found, get the body text
+                    return document.body.innerText;
+                }""")
+                
+                await browser.close()
+                return content
             except Exception as e:
-                logger.warning(f"Falha ao extrair texto com Playwright: {str(e)}")
+                logging.error(f"Error during page navigation: {str(e)}")
+                await browser.close()
                 
-            finally:
-                browser.close()
+                # Fallback to requests + BeautifulSoup
+                response = requests.get(link)
+                response.raise_for_status()
+                soup = BeautifulSoup(response.text, 'html.parser')
+                return soup.get_text()
                 
-        # Se Playwright falhar, tentar com requests + BeautifulSoup como fallback
-        try:
-            response = requests.get(link, headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            })
-            response.raise_for_status()
-            
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Remover elementos indesejados
-            for element in soup(['script', 'style', 'nav', 'footer', 'header', 'iframe', 'noscript', 'aside']):
-                element.decompose()
-                
-            # Tentar encontrar o conteúdo principal
-            article = soup.find('article') or soup.find('div', class_=['article', 'post', 'content', 'main-content'])
-            
-            if article:
-                texto = article.get_text(separator=' ', strip=True)
-            else:
-                # Tentar encontrar parágrafos
-                paragraphs = soup.find_all('p')
-                texto = ' '.join([p.get_text().strip() for p in paragraphs if p.get_text().strip()])
-            
-            if texto and len(texto) > 100:
-                return texto
-                
-        except Exception as e:
-            logger.warning(f"Falha ao extrair texto com requests: {str(e)}")
-            
-        logger.warning(f"Não foi possível extrair texto significativo do link: {link}")
-        return None
-        
     except Exception as e:
-        logger.error(f"Falha ao extrair texto: {str(e)}")
-        return None
+        logging.error(f"Error extracting text from {link}: {str(e)}")
+        return ""
 
 def classificar_conteudo_via_gpt(texto):
     try:
