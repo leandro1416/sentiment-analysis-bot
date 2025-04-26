@@ -11,14 +11,15 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import random
-from scraperapi import ScraperAPIClient
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # Load environment variables
 load_dotenv()
 
 # Configuração da API
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-scraper_api = ScraperAPIClient(os.getenv("SCRAPER_API_KEY"))
+SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY")
 
 def create_session():
     session = requests.Session()
@@ -34,9 +35,21 @@ def create_session():
 
 async def extrair_texto(link):
     try:
-        # Primeira tentativa: usar ScraperAPI
+        # Primeira tentativa: usar ScraperAPI REST
         try:
-            response = scraper_api.get(link)
+            session = create_session()
+            response = session.get(
+                'http://api.scraperapi.com',
+                params={
+                    'api_key': SCRAPER_API_KEY,
+                    'url': link,
+                    'render': 'true',
+                    'country_code': 'br'
+                },
+                timeout=30
+            )
+            response.raise_for_status()
+            
             soup = BeautifulSoup(response.text, 'html.parser')
             
             # Remover elementos indesejados
@@ -60,8 +73,21 @@ async def extrair_texto(link):
             
         # Segunda tentativa: usar newspaper3k com ScraperAPI
         try:
+            session = create_session()
+            response = session.get(
+                'http://api.scraperapi.com',
+                params={
+                    'api_key': SCRAPER_API_KEY,
+                    'url': link,
+                    'render': 'true',
+                    'country_code': 'br'
+                },
+                timeout=30
+            )
+            response.raise_for_status()
+            
             article = Article(link)
-            article.html = scraper_api.get(link).text
+            article.html = response.text
             article.parse()
             texto = article.text
             
