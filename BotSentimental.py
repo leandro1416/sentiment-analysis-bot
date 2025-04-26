@@ -11,7 +11,8 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import random
-from scrapingbee import ScrapingBeeClient
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import logging
 
 # Configurar logging
@@ -26,7 +27,7 @@ load_dotenv()
 
 # Configuração da API
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-scrapingbee = ScrapingBeeClient(api_key=os.getenv("SCRAPINGBEE_API_KEY"))
+SCRAPINGBEE_API_KEY = os.getenv("SCRAPINGBEE_API_KEY")
 
 def create_session():
     session = requests.Session()
@@ -42,16 +43,20 @@ def create_session():
 
 async def extrair_texto(link):
     try:
-        # Primeira tentativa: usar ScrapingBee
+        # Primeira tentativa: usar ScrapingBee REST
         try:
-            response = scrapingbee.get(
-                link,
+            session = create_session()
+            response = session.get(
+                'https://app.scrapingbee.com/api/v1/',
                 params={
+                    'api_key': SCRAPINGBEE_API_KEY,
+                    'url': link,
                     'render_js': 'true',
                     'wait': 3000,
                     'country_code': 'br',
                     'premium_proxy': 'true'
-                }
+                },
+                timeout=30
             )
             response.raise_for_status()
             
@@ -78,14 +83,18 @@ async def extrair_texto(link):
             
         # Segunda tentativa: usar newspaper3k com ScrapingBee
         try:
-            response = scrapingbee.get(
-                link,
+            session = create_session()
+            response = session.get(
+                'https://app.scrapingbee.com/api/v1/',
                 params={
+                    'api_key': SCRAPINGBEE_API_KEY,
+                    'url': link,
                     'render_js': 'true',
                     'wait': 3000,
                     'country_code': 'br',
                     'premium_proxy': 'true'
-                }
+                },
+                timeout=30
             )
             response.raise_for_status()
             
