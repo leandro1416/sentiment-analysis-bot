@@ -5,5 +5,4 @@ urllib3==2.2.1
 python-dotenv==1.0.0
 lxml[html_clean]>=5.1.0
 requests==2.31.0
-beautifulsoup4==4.12.2
-playwright==1.42.0 
+beautifulsoup4==4.12.2 

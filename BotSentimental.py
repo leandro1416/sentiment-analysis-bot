@@ -11,7 +11,6 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import random
-from playwright.async_api import async_playwright
 
 # Load environment variables
 load_dotenv()
@@ -21,61 +20,18 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 async def extrair_texto(link):
     try:
-        # Primeira tentativa: usar Playwright
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Cache-Control': 'max-age=0'
+        }
+        
+        # Primeira tentativa: usar requests e BeautifulSoup
         try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                page = await browser.new_page()
-                
-                # Configurar headers
-                await page.set_extra_http_headers({
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                    'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-                })
-                
-                # Navegar para a página
-                await page.goto(link, wait_until='networkidle', timeout=30000)
-                
-                # Esperar o conteúdo carregar
-                await page.wait_for_load_state('domcontentloaded')
-                
-                # Dar um tempo extra para o conteúdo dinâmico carregar
-                await asyncio.sleep(3)
-                
-                # Tentar encontrar o conteúdo principal
-                article = await page.query_selector('article')
-                if article:
-                    texto = await article.inner_text()
-                else:
-                    # Tentar encontrar divs com classes comuns de conteúdo
-                    content_div = await page.query_selector('div.article, div.post, div.content, div.main-content')
-                    if content_div:
-                        texto = await content_div.inner_text()
-                    else:
-                        # Se não encontrar, pegar todo o texto do body
-                        body = await page.query_selector('body')
-                        texto = await body.inner_text()
-                
-                await browser.close()
-                
-                if texto and len(texto) > 100:
-                    return texto
-        except Exception as e:
-            print(f"[AVISO] Primeira tentativa (Playwright) falhou: {str(e)}")
-            
-        # Segunda tentativa: usar requests e BeautifulSoup
-        try:
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-                'Cache-Control': 'max-age=0'
-            }
-            
             response = requests.get(link, headers=headers, timeout=10)
             response.raise_for_status()
             
@@ -91,8 +47,21 @@ async def extrair_texto(link):
             if article:
                 texto = article.get_text(separator=' ', strip=True)
             else:
+                # Tentar encontrar parágrafos
                 paragraphs = soup.find_all('p')
                 texto = ' '.join([p.get_text().strip() for p in paragraphs if p.get_text().strip()])
+            
+            if texto and len(texto) > 100:
+                return texto
+        except Exception as e:
+            print(f"[AVISO] Primeira tentativa falhou: {str(e)}")
+            
+        # Segunda tentativa: usar newspaper3k
+        try:
+            article = Article(link)
+            article.download()
+            article.parse()
+            texto = article.text
             
             if texto and len(texto) > 100:
                 return texto
